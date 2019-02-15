@@ -8,7 +8,7 @@ import seaborn as sns
 import xgboost as xgb
 from sklearn.decomposition import TruncatedSVD
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.feature_selection import chi2
+from sklearn.feature_selection import chi2, SelectKBest
 from sklearn.metrics import classification_report
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.model_selection import train_test_split
@@ -220,18 +220,18 @@ def data_transformation(data):
 
 
 def reduce_dimensionality(X_train, X_test, y_train, y_test):
-    # ch2_result = []
-    # for n in np.arange(100, 9000, 100):
-    #     ch2 = SelectKBest(chi2, k=n)
-    #     x_train_chi2_selected = ch2.fit_transform(X_train, y_train)
-    #     x_validation_ch2_selected = ch2.transform(X_test)
-    #     clf = LinearSVC()
-    #     clf.fit(x_train_chi2_selected, y_train)
-    #     score = clf.score(x_validation_ch2_selected, y_test)
-    #     ch2_result.append((score, n))
-    #     print("chi2 feature selection evaluation calculated for {} features".format(n))
-    #  ch2_result.sort(key=lambda x: x[0], reverse=True)
-    #  print(ch2_result)
+    ch2_result = []
+    for n in np.arange(100, 9000, 100):
+        ch2 = SelectKBest(chi2, k=n)
+        x_train_chi2_selected = ch2.fit_transform(X_train, y_train)
+        x_validation_ch2_selected = ch2.transform(X_test)
+        clf = LinearSVC()
+        clf.fit(x_train_chi2_selected, y_train)
+        score = clf.score(x_validation_ch2_selected, y_test)
+        ch2_result.append((score, n))
+        print("chi2 feature selection evaluation calculated for {} features".format(n))
+    ch2_result.sort(key=lambda x: x[0], reverse=True)
+    print(ch2_result)
     # first set PCA to retain 95% of variety
     pca = TruncatedSVD(1500)
     pca.fit(X_train)
@@ -257,11 +257,11 @@ def data_maker_without_nan(data):
     data = data[["Translated_Review", "Sentiment"]]
     data = data[["Translated_Review", "Sentiment"]].drop_duplicates()
     stat_dict, X_train, X_test, y_train, y_test = data_transformation(data)
-    # X_train, X_test, y_train, y_test = reduce_dimensionality(X_train, X_test, y_train, y_test)
+    X_train, X_test, y_train, y_test = reduce_dimensionality(X_train, X_test, y_train, y_test)
     # result = bayes_cv_tuner.fit(X_train, y_train, callback=make_xgboost)
     # grid_search_SVC(X_train, X_test, y_train, y_test)
     # grid_search_linearSVC(X_train, X_test, y_train, y_test)
-    make_plot_with_models(X_train, X_test, y_train, y_test)
+    # make_plot_with_models(X_train, X_test, y_train, y_test)
     # naive_bayes(X_train_tf, X_test_df, y_train, y_test)
     # sgd_classifier(X_train_tf, X_test_df, y_train, y_test)
 
