@@ -6,60 +6,23 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import xgboost as xgb
-from sklearn.decomposition import TruncatedSVD
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.feature_selection import chi2, SelectKBest
-from sklearn.metrics import classification_report
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import cross_val_score, StratifiedKFold
 from sklearn.model_selection import train_test_split
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import LinearSVC, SVC
 from skopt import BayesSearchCV
+
+from Natural_language import LemmaTokenizer
 
 
 def get_data():
     path_to_file = "./googleplaystore_user_reviews.csv"
     data = pd.read_csv(path_to_file, encoding="utf-8")
     return data
-
-
-def sgd_classifier(X_train_tf, X_test_df, y_train, y_test):
-    from sklearn.linear_model import SGDClassifier
-    clf = SGDClassifier(loss="hinge", penalty="l2", alpha=1e-3,
-                        random_state=42, max_iter=5, tol=None)
-    clf = clf.fit(X_train_tf, y_train)
-    scores = cross_val_score(clf, X_test_df, y_test)
-    print("scores for SGDClassifier is {}".format(scores))
-    y_pred = clf.predict(X_test_df)
-    print(classification_report(y_test, y_pred, target_names=list(set(y_test.values))))
-
-
-def naive_bayes(X_train_tf, X_test_df, y_train, y_test):
-    from sklearn.naive_bayes import MultinomialNB
-    clf = MultinomialNB().fit(X_train_tf, y_train)
-    scores = cross_val_score(clf, X_test_df, y_test)
-    print("Score for naive bayes is: {}".format(scores))
-    y_pred = clf.predict(X_test_df)
-    print(classification_report(y_test, y_pred, target_names=list(set(y_test.values))))
-    # reviews = ["Very Useful in diabetes age 30. I need control sugar. thanks",
-    #            "God health", "HEALTH SHOULD ALWAYS BE TOP PRIORITY. !!. ON MYSG5."]
-    # X_new_counts = count_vect.transform(reviews)
-    # X_new_tfids = tfid_transformer.transform(X_new_counts)
-    # predicted = clf.predict(X_new_tfids)
-    # for review, category in zip(reviews, predicted):
-    #     print("{} => {}".format(review, category))
-
-
-def linear_search_one_more_time(X_train_tf, X_test_df, y_train, y_test, data):
-    from sklearn.metrics import confusion_matrix
-    model = LinearSVC()
-    model.fit(X_train_tf, y_train)
-    y_pred = model.predict(X_test_df)
-    conf_mat = confusion_matrix(y_test, y_pred)
-    sns.heatmap(conf_mat, annot=True, fmt="d", xticklabels=set(data.Sentiment.values),
-                yticklabels=set(data.Sentiment.values))
-    plt.ylabel("Actual")
-    plt.xlabel("Predicted")
-    plt.show()
 
 
 def grid_search_linearSVC(features, X_test_df, labels, y_test):
@@ -78,8 +41,11 @@ def grid_search_linearSVC(features, X_test_df, labels, y_test):
     print("test score: %s" % opt.score(X_test_df, y_test))
 
 
-def grid_search_SVC(features, X_test_df, labels, y_test):
+def grid_search_SVC(features, X_test, labels, y_test):
     print("grid search start")
+    ch2 = SelectKBest(chi2, 1500)
+    x_train_chi2 = ch2.fit_transform(features, labels)
+    x_valid = ch2.transform(X_test)
     opt = BayesSearchCV(
         SVC(),
         {
@@ -92,9 +58,9 @@ def grid_search_SVC(features, X_test_df, labels, y_test):
         random_state=1234
     )
     print("grid search begin")
-    opt.fit(features, labels)
+    opt.fit(x_train_chi2, labels)
     print("val. score: %s" % opt.best_score_)
-    print("test score: %s" % opt.score(X_test_df, y_test))
+    print("test score: %s" % opt.score(x_valid, y_test))
     print("best_estimators: %s" % opt.best_params_)
 
 
@@ -138,7 +104,6 @@ bayes_cv_tuner = BayesSearchCV(
 def make_xgboost():
     # Get all the models tested so far in DataFrame format
     all_models = pd.DataFrame(bayes_cv_tuner.best_params_)
-
     # Get current parameters and the best parameters
     best_params = pd.Series(bayes_cv_tuner.best_params_)
     print('Model #{}\nBest ROC-AUC: {}\nBest params: {}\n'.format(
@@ -150,10 +115,11 @@ def make_xgboost():
 
 def make_plot_with_models(features, X_test_df, labels, y_test):
     models = [LinearSVC(),
-              SVC(kernel="linear")]
-    # RandomForestClassifier(n_estimators=200, max_depth=3, random_state=0),
-    # MultinomialNB, LogisticRegression(random_state=0),
-    CV = 2
+              SVC(kernel="linear"),
+              RandomForestClassifier(n_estimators=200, max_depth=3, random_state=0),
+              MultinomialNB(),
+              LogisticRegression(random_state=0)]
+    CV = 5
     cv_df = pd.DataFrame(index=range(CV * len(models)))
     entries = []
     for model in models:
@@ -169,24 +135,10 @@ def make_plot_with_models(features, X_test_df, labels, y_test):
     print(cv_df.groupby("model_name").accuracy.mean())
 
 
-def analyse_correlation(category_to_id, features, labels, tfidf):
-    N = 2
-    for Product, category_id in sorted(category_to_id.items()):
-        features_chi2 = chi2(features, labels == category_id)
-        indices = np.argsort(features_chi2[0])
-        feature_names = np.array(tfidf.get_feature_names())[indices]
-        unigrams = [v for v in feature_names if len(v.split(' ')) == 1]
-        bigrams = [v for v in feature_names if len(v.split(' ')) == 2]
-        print("# '{}':".format(Product))
-        print("  . Most correlated unigrams:\n. {}".format('\n. '.join(unigrams[-N:])))
-        print("  . Most correlated bigrams:\n. {}".format('\n. '.join(bigrams[-N:])))
-
-
 def data_transformation(data):
     stat_dict = dict(data.values)
     feature = data["Translated_Review"]
     estimate = data["Sentiment"]
-    # в начале трансформируем, потом сплитим.
     X_train, X_test, y_train, y_test = train_test_split(feature, estimate, train_size=0.8, random_state=0)
     """
     sublinear_df is set to True to use a logarithmic form for frequency.
@@ -219,6 +171,21 @@ def data_transformation(data):
     return stat_dict, X_train_tf, X_test_tf, y_train, y_test
 
 
+def linear_svc(X_train, X_test, y_train, y_test):
+    ch2 = SelectKBest(chi2, 1500)
+    x_train_chi2 = ch2.fit_transform(X_train, y_train)
+    x_valid = ch2.transform(X_test)
+    models = [LinearSVC(),
+              SVC(kernel="linear"),
+              RandomForestClassifier(n_estimators=200, max_depth=3, random_state=0),
+              MultinomialNB(),
+              LogisticRegression(random_state=0)]
+    for model in models:
+        model.fit(x_train_chi2, y_train)
+        print("Score for {} and SelectKBest: {}".format(model.__class__.__name__, model.score(x_valid, y_test)))
+    # best score has SVC with kernel = linear: 91,5 %
+
+
 def reduce_dimensionality(X_train, X_test, y_train, y_test):
     ch2_result = []
     for n in np.arange(100, 9000, 100):
@@ -229,15 +196,16 @@ def reduce_dimensionality(X_train, X_test, y_train, y_test):
         clf.fit(x_train_chi2_selected, y_train)
         score = clf.score(x_validation_ch2_selected, y_test)
         ch2_result.append((score, n))
+        print(score, n)
         print("chi2 feature selection evaluation calculated for {} features".format(n))
     ch2_result.sort(key=lambda x: x[0], reverse=True)
     print(ch2_result)
     # first set PCA to retain 95% of variety
-    pca = TruncatedSVD(1500)
-    pca.fit(X_train)
-    X_train_k = pca.transform(X_train)
-    X_test_k = pca.transform(X_test)
-    return X_train_k, X_test_k, y_train, y_test
+    # pca = TruncatedSVD(1500)
+    # pca.fit(X_train)
+    # X_train_k = pca.transform(X_train)
+    # X_test_k = pca.transform(X_test)
+    # return X_train_k, X_test_k, y_train, y_test
     # for k in range(100, 9000, 100):
     #     pca = TruncatedSVD(k)
     #     pca.fit(X_train)
@@ -250,16 +218,28 @@ def reduce_dimensionality(X_train, X_test, y_train, y_test):
     # Best score has 1500 and 2000 features, so let's take 1500
 
 
+def data_lemmatization(data):
+    # using LemmaTokenizer (WordNetLemmatizer) ans SelectKBest gives 91,4% (91,6%)
+    feature = data["Translated_Review"]
+    estimate = data["Sentiment"]
+    X_train, X_test, y_train, y_test = train_test_split(feature, estimate, train_size=0.8, random_state=0)
+    vect = CountVectorizer(tokenizer=LemmaTokenizer())
+    X_train, X_test = vect.fit_transform(X_train), vect.transform(X_test)
+    return X_train, X_test, y_train, y_test
+
+
 def data_maker_without_nan(data):
     # I don't think that nan's will affect on final solution, but half of all data is nan.
     data = data.dropna()
     data = data.reset_index(drop=True)
     data = data[["Translated_Review", "Sentiment"]]
     data = data[["Translated_Review", "Sentiment"]].drop_duplicates()
-    stat_dict, X_train, X_test, y_train, y_test = data_transformation(data)
-    X_train, X_test, y_train, y_test = reduce_dimensionality(X_train, X_test, y_train, y_test)
+    X_train, X_test, y_train, y_test = data_lemmatization(data)
+    # stat_dict, X_train, X_test, y_train, y_test = data_transformation(data)
+    # reduce_dimensionality(X_train, X_test, y_train, y_test)
+    # linear_svc(X_train, X_test, y_train, y_test)
     # result = bayes_cv_tuner.fit(X_train, y_train, callback=make_xgboost)
-    # grid_search_SVC(X_train, X_test, y_train, y_test)
+    grid_search_SVC(X_train, X_test, y_train, y_test)
     # grid_search_linearSVC(X_train, X_test, y_train, y_test)
     # make_plot_with_models(X_train, X_test, y_train, y_test)
     # naive_bayes(X_train_tf, X_test_df, y_train, y_test)
@@ -274,10 +254,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # TODO make grid search for c-parameter linear svm model
-    # Done - best score: 86,6%
-    # TODO make grid search for poly(rbf) gamma parameter
-    # In work: Need to reduce dimensionality to work with that function
     # comment for me
     # Robust, Nomaliser - глянуть
     # 1) Привести в порядок код.
