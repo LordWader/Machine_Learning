@@ -8,9 +8,9 @@ import seaborn as sns
 import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
-from sklearn.feature_selection import chi2, SelectKBest
+from sklearn.feature_selection import chi2, SelectKBest, SelectPercentile
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import cross_val_score, StratifiedKFold
+from sklearn.model_selection import cross_val_score, StratifiedKFold, GridSearchCV
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.svm import LinearSVC, SVC
@@ -43,35 +43,19 @@ def grid_search_linearSVC(features, X_test_df, labels, y_test):
 
 def grid_search_SVC(features, X_test, labels, y_test):
     print("grid search start")
-    ch2 = SelectKBest(chi2, 1500)
+    ch2 = SelectPercentile(percentile=5)
     x_train_chi2 = ch2.fit_transform(features, labels)
     x_valid = ch2.transform(X_test)
-    opt = BayesSearchCV(
-        SVC(),
-        {
-            "C": (1e-6, 1e+6, "log-uniform"),
-            "gamma": (1e-6, 1e+1, "log-uniform"),
-            "degree": (1, 3),
-            "kernel": ["linear", "poly", "rbf"],
-        },
-        n_iter=30,
-        random_state=1234
-    )
-    print("grid search begin")
-    opt.fit(x_train_chi2, labels)
-    print("val. score: %s" % opt.best_score_)
-    print("test score: %s" % opt.score(x_valid, y_test))
-    print("best_estimators: %s" % opt.best_params_)
+    C_range = 10.**np.arange(-3, 8)
+    gamma_range = 10.**np.arange(-5, 4)
+    param_grid = dict(gamma=gamma_range, C=C_range)
+    grid = GridSearchCV(SVC(), param_grid=param_grid, n_jobs=-1, cv=5)
+    grid.fit(x_train_chi2, labels)
+    print("The best classifier is: ", grid.best_estimator_)
 
 
 bayes_cv_tuner = BayesSearchCV(
-    estimator=xgb.XGBClassifier(
-        n_jobs=1,
-        objective='binary:logistic',
-        eval_metric='auc',
-        silent=True,
-        tree_method='approx'
-    ),
+    estimator=SVC(),
     search_spaces={
         'learning_rate': (0.01, 1.0, 'log-uniform'),
         'min_child_weight': (0, 10),
@@ -140,18 +124,6 @@ def data_transformation(data):
     feature = data["Translated_Review"]
     estimate = data["Sentiment"]
     X_train, X_test, y_train, y_test = train_test_split(feature, estimate, train_size=0.8, random_state=0)
-    """
-    sublinear_df is set to True to use a logarithmic form for frequency.
-    
-    min_df is the minimum numbers of documents a word must be present in to be kept.
-    
-    norm is set to l2, to ensure all our feature vectors have a euclidian norm of 1.
-    
-    ngram_range is set to (1, 2) to indicate that we want to consider both unigrams and bigrams.
-    
-    stop_words is set to "english" to remove all 
-    common pronouns ("a", "the", ...) to reduce the number of noisy features.
-    """
     # tfidf - Term Frequency and Inverse Document Frequency
     tfid_vector = TfidfVectorizer(sublinear_tf=True, min_df=5, max_df=0.8,
                                   norm="l2", ngram_range=(1, 2), stop_words="english")
@@ -172,14 +144,19 @@ def data_transformation(data):
 
 
 def linear_svc(X_train, X_test, y_train, y_test):
-    ch2 = SelectKBest(chi2, 1500)
+    # LinearSVC - 91,9%; SVC - 92% - using SelectPercentile(percentile=5)
+    ch2 = SelectPercentile(percentile=5)
     x_train_chi2 = ch2.fit_transform(X_train, y_train)
     x_valid = ch2.transform(X_test)
     models = [LinearSVC(),
-              SVC(kernel="linear"),
-              RandomForestClassifier(n_estimators=200, max_depth=3, random_state=0),
-              MultinomialNB(),
-              LogisticRegression(random_state=0)]
+              SVC(C=0.01, kernel="linear"),
+              SVC(C=0.001, kernel="linear"),
+              SVC(C=10, kernel="linear"),
+              SVC(C=100, kernel="linear")
+              ]
+    # RandomForestClassifier(n_estimators=200, max_depth=3, random_state=0),
+    # MultinomialNB(),
+    # LogisticRegression(random_state=0)
     for model in models:
         model.fit(x_train_chi2, y_train)
         print("Score for {} and SelectKBest: {}".format(model.__class__.__name__, model.score(x_valid, y_test)))
@@ -237,9 +214,9 @@ def data_maker_without_nan(data):
     X_train, X_test, y_train, y_test = data_lemmatization(data)
     # stat_dict, X_train, X_test, y_train, y_test = data_transformation(data)
     # reduce_dimensionality(X_train, X_test, y_train, y_test)
-    # linear_svc(X_train, X_test, y_train, y_test)
+    linear_svc(X_train, X_test, y_train, y_test)
     # result = bayes_cv_tuner.fit(X_train, y_train, callback=make_xgboost)
-    grid_search_SVC(X_train, X_test, y_train, y_test)
+    # grid_search_SVC(X_train, X_test, y_train, y_test)
     # grid_search_linearSVC(X_train, X_test, y_train, y_test)
     # make_plot_with_models(X_train, X_test, y_train, y_test)
     # naive_bayes(X_train_tf, X_test_df, y_train, y_test)
@@ -254,12 +231,14 @@ def main():
 
 
 if __name__ == "__main__":
-    # comment for me
-    # Robust, Nomaliser - глянуть
-    # 1) Привести в порядок код.
-    # 2) Прогнать данные через робуст, нормалайзер, ... (после тфидфтрансформера без редьюса дименшионов) -
-    # для ядерных (нот линеар кернел).
-    # 3) Доразобраться с сайкит-оптимайзером, иксджи-бустом.
-    # 4) Посмотреть басс: Stemming, Lemmatization - мб для этого не нужны стоп-слова.
-    # 5) Взять в аренду google cloud
+    # comments for me
+    """
+    1) tfidftransformer не неужно проганять через скаллеры - это ухдшает точность получаемой модели
+    2) Пока что лучший скаллер - CountVectorizer, c кастомным токенайзером
+    3) Кастомный токенайзер WordNetLemmatizer
+    4) scikit-optimizer - разобрался, но почему то выше 80% модель не удалось получить
+    5) Градиент бустинг - смотри пункт 4
+    6) Лучший на данный момент результат - SVC: 92% LinearSVC: 91,9%
+    7) 
+    """
     main()
