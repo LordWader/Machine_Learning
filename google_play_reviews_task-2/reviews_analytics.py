@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import xgboost as xgb
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
 from sklearn.feature_selection import chi2, SelectKBest, SelectPercentile
@@ -46,8 +45,8 @@ def grid_search_SVC(features, X_test, labels, y_test):
     ch2 = SelectPercentile(percentile=5)
     x_train_chi2 = ch2.fit_transform(features, labels)
     x_valid = ch2.transform(X_test)
-    C_range = 10.**np.arange(-3, 8)
-    gamma_range = 10.**np.arange(-5, 4)
+    C_range = 10. ** np.arange(-3, 8)
+    gamma_range = 10. ** np.arange(-5, 4)
     param_grid = dict(gamma=gamma_range, C=C_range)
     grid = GridSearchCV(SVC(), param_grid=param_grid, n_jobs=-1, cv=5)
     grid.fit(x_train_chi2, labels)
@@ -77,7 +76,7 @@ bayes_cv_tuner = BayesSearchCV(
         shuffle=True,
         random_state=42
     ),
-    n_jobs=3,
+    n_jobs=-1,
     n_iter=10,
     verbose=0,
     refit=True,
@@ -149,10 +148,10 @@ def linear_svc(X_train, X_test, y_train, y_test):
     x_train_chi2 = ch2.fit_transform(X_train, y_train)
     x_valid = ch2.transform(X_test)
     models = [LinearSVC(),
-              SVC(C=0.01, kernel="linear"),
-              SVC(C=0.001, kernel="linear"),
-              SVC(C=10, kernel="linear"),
-              SVC(C=100, kernel="linear")
+              SVC(kernel="linear"),
+              SVC(kernel="linear"),
+              SVC(kernel="linear"),
+              SVC(kernel="linear") # tooooooooo long
               ]
     # RandomForestClassifier(n_estimators=200, max_depth=3, random_state=0),
     # MultinomialNB(),
